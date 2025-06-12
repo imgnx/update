@@ -1,0 +1,28 @@
+#!/bin/bash
+#shellcheck shell=bash
+
+mkdir -p "$HOME/bin" || {
+  echo "[error] Could not create $HOME/bin"
+  exit 1
+}
+
+mkdir -p "$HOME/src" || {
+  echo "[error] Could not create $HOME/src"
+  exit 1
+}
+
+curl -s https://raw.githubusercontent.com/imgnx/up/main/bin/update | bash -s -- "$HOME/bin"
+
+
+cp ./bin/up
+
+# Ensure that $HOME/bin is on your $PATH
+if ! echo "$PATH" | grep -q "$HOME/bin"; then
+    
+    # If not, add $HOME/bin to PATH via Run Commands (.rc file)
+    echo 'export PATH="$HOME/bin:$PATH"' >> "$HOME/.$(basename $SHELL)rc"
+
+    # Restart the shell to apply changes
+    exec "$SHELL" --login
+    
+fi
