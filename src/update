@@ -2,10 +2,6 @@
 #shellcheck shell=bash
 
 DEBUG=false
-# if Arguments contain -d, -debug, --debug, -verbose, --v, or --verbose, DEBUG is true.
-if [[ "$*" == *-d* || "$*" == *-debug* || "$*" == *--debug* || "$*" == *-verbose* || "$*" == *--v* || "$*" == *--verbose* ]]; then
-      DEBUG=true
-fi
 
 function 80271208_E8EB_427F_A35C_012FB6D3B5E7() {
       echo "Installing shc..."
@@ -23,6 +19,42 @@ function 80271208_E8EB_427F_A35C_012FB6D3B5E7() {
 }
 
 function 5772B520_57F5_433E_927E_031A8329C317() {
+
+      # Parse arguments for debug and environment flags
+      ENV=""
+      # Parse debug flags more precisely to avoid conflicts with --dev
+      for arg in "$@"; do
+            if [[ $arg == "-d" || $arg == "-debug" || $arg == "--debug" || $arg == "-verbose" || $arg == "--v" || $arg == "--verbose" ]]; then
+                  DEBUG=true
+                  break
+            fi
+      done
+
+      # Parse environment argument and filter out non-positional arguments
+      filtered_args=()
+      for arg in "$@"; do
+            if [[ $arg == --env=* ]]; then
+                  ENV="${arg#*=}"
+            elif [[ $arg == -e=* ]]; then
+                  ENV="${arg#*=}"
+            elif [[ $arg == --dev ]]; then
+                  ENV="dev"
+            elif [[ $arg == --prod ]]; then
+                  ENV="prod"
+            elif [[ $arg != "-d" && $arg != "-debug" && $arg != "--debug" && $arg != "-verbose" && $arg != "--v" && $arg != "--verbose" ]]; then
+                  filtered_args+=("$arg")
+            fi
+      done
+
+      # Normalize and validate ENV
+      if [[ -z "$ENV" ]]; then
+            echo "[INFO]: No --env flag specified. Using 'development' by default."
+            echo "[INFO]: Available environments: dev, staging, prod"
+            ENV="development"
+      elif [[ "$ENV" != "dev" && "$ENV" != "staging" && "$ENV" != "prod" ]]; then
+            echo "[INFO]: Unknown environment '$ENV'. Defaulting to 'staging'."
+            ENV="staging"
+      fi
 
       # If `shc` is not installed, install it
       if ! command -v shc >/dev/null 2>&1; then
@@ -54,33 +86,39 @@ function 5772B520_57F5_433E_927E_031A8329C317() {
 
       trap 'echo -e "\n[updater] Stopped."; exit 0' INT
 
-      # If $1 is not provided, use current directory
-      if [[ -z $1 ]]; then
+      # If first filtered argument is not provided, use current directory
+      if [[ ${#filtered_args[@]} -eq 0 ]]; then
             source="$(pwd)"
       else
-            source="$1"
+            source="${filtered_args[0]}"
       fi
 
       function usage() {
             cat <<EOF
 update - Watch and sync a script to ~/bin as a command
-      Usage: update <folder-to-sync> [name-of-command]
+      Usage: update [--env=<dev|staging|prod>|--dev|--prod] <folder-to-sync> [name-of-command]
       If run in a directory containing main.sh and no folder is specified, uses the current directory.
       Watches <folder-to-sync>/main.sh for changes and syncs it to:
             ~/src/<folder-to-sync>/src/<name-of-command>
-            ~/src/<folder-to-sync>/dist/<name-of-command>
+            ~/src/<folder-to-sync>/dist/<env>.<name-of-command>
             ~/bin/<name-of-command>
       Arguments:
-            <folder-to-sync>    The folder containing main.sh to watch and sync.
-            [name-of-command]   (Optional) The name for the command. Defaults to the folder name.
+            --env=<env>          Environment to use: dev, staging, or prod (optional, defaults to development)
+            --dev                Shortcut for --env=dev
+            --prod               Shortcut for --env=prod
+            <folder-to-sync>     The folder containing main.sh to watch and sync.
+            [name-of-command]    (Optional) The name for the command. Defaults to the folder name.
       Features:
             - Automatically copies main.sh when changes are detected.
             - Installs the script to ~/bin for easy access.
             - Press Ctrl+C to stop watching.
       Example:
-            update ~/my-scripts         # Watches ~/my-scripts/main.sh
-            update . mycmd             # Watches ./main.sh and installs as 'mycmd'
-
+            update --env=dev ~/my-scripts
+            update --dev ~/my-scripts
+            update -e=prod . mycmd
+            update --prod . mycmd
+            update ~/my-scripts
+            update . mycmd
 EOF
       }
 
@@ -98,8 +136,15 @@ EOF
       fi
 
       filename="$source/main.sh"
-      basename="$(basename "$source")"
-      handle="${2:-$basename}"
+      # Get the actual directory name, handling current directory properly
+      if [[ "$source" == "." ]]; then
+            basename="$(basename "$(pwd)")"
+      else
+            basename="$(basename "$source")"
+      fi
+      handle="${filtered_args[1]:-$basename}"
+
+      echo "[updater] Program name set to: $handle"
 
       mkdir -p ~/src ~/bin
 
@@ -119,25 +164,52 @@ EOF
                   mkdir -p "$HOME/src/$basename/src"
                   dst_src="$HOME/src/$basename/src/$handle"
             fi
-            dst_bin="$HOME/src/$basename/dist/$handle"
+
+            dst_bin="$HOME/src/$basename/dist/${ENV}.$handle"
             dst_final="$HOME/bin/$handle"
 
             mkdir -p "$(dirname "$dst_src")" "$(dirname "$dst_bin")"
 
-            if cmp -s "$filename" "$dst_src"; then
-                  [[ "$DEBUG" = true ]] && echo "[DEBUG]: No changes Detected. Skipping..."
-                  # printf "\r[\033[38;5;10m%s\033[39m] No changes Detected. Watching \033[0;32m%s\033[0m..." "$(date '+%H:%M:%S')" "$filename"
-                  printf "\r\033[K[\033[38;5;10m%s\033[39m] No changes Detected. Watching \033[0;32m%scd\033[0m..." "$(date '+%H:%M:%S')" "$(basename "$filename")"
+            # Check if source file changed OR if bin file doesn't match what it should be
+            source_changed=false
+            bin_needs_update=false
 
+            if ! cmp -s "$filename" "$dst_src"; then
+                  source_changed=true
+            fi
+
+            # Check if bin file matches the expected dist file
+            if ! cmp -s "$dst_bin" "$dst_final" 2>/dev/null; then
+                  bin_needs_update=true
+            fi
+
+            if [[ "$source_changed" == false && "$bin_needs_update" == false ]]; then
+                  [[ "$DEBUG" = true ]] && echo "[DEBUG]: No changes detected. Skipping..."
+                  printf "\r\033[K[\033[38;5;10m%s\033[39m] No changes detected. Watching \033[0;32m%s\033[0m..." "$(date '+%H:%M:%S')" "$(basename "$filename")"
                   sleep 1
                   continue
             else
-                  [[ "$DEBUG" = true ]] && echo "[$(date '+%H:%M:%S')] Changes detected. Syncing..."
+                  if [[ "$source_changed" == true && "$bin_needs_update" == true ]]; then
+                        [[ "$DEBUG" = true ]] && echo "[$(date '+%H:%M:%S')] Source and bin files need updating. Syncing..."
+                  elif [[ "$source_changed" == true ]]; then
+                        [[ "$DEBUG" = true ]] && echo "[$(date '+%H:%M:%S')] Source file changed. Syncing..."
+                  elif [[ "$bin_needs_update" == true ]]; then
+                        [[ "$DEBUG" = true ]] && echo "[$(date '+%H:%M:%S')] Environment/bin mismatch detected. Syncing..."
+                  fi
+
                   cp "$filename" "$dst_src"
-                  cp "$filename" "$dst_bin"
-                  cp "$filename" "$dst_final"
+
+                  if [[ "$ENV" == "prod" ]]; then
+                        shc -f "$filename" -o "$dst_bin"
+                        cp "$dst_bin" "$dst_final"
+                  else
+                        cp "$filename" "$dst_bin"
+                        cp "$filename" "$dst_final"
+                  fi
+
                   chmod +x "$dst_src" "$dst_bin" "$dst_final"
-                  echo "[$(date '+%H:%M:%S')] Updated $dst_final"
+
+                  printf "\r\033[K[\033[38;5;10m%s\033[39m] Updated \033[0;32m%s\033[0m\n" "$(date '+%H:%M:%S')" "$dst_final"
             fi
 
             sleep 1
