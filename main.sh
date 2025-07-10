@@ -1,7 +1,8 @@
-#!/bin/bash
-#shellcheck shell=bash
+#!/bin/zsh
+# shellcheck disable=SC1071
 
 DEBUG=false
+VERBOSE=0
 
 function 80271208_E8EB_427F_A35C_012FB6D3B5E7() {
       echo "Installing shc..."
@@ -23,45 +24,36 @@ function 5772B520_57F5_433E_927E_031A8329C317() {
       # Parse arguments for debug and environment flags
       ENV=""
       # Parse debug flags more precisely to avoid conflicts with --dev
+      # Parse verbosity flags and validate arguments
       for arg in "$@"; do
-            if [[ $arg == "-d" || $arg == "-debug" || $arg == "--debug" || $arg == "-verbose" || $arg == "--v" || $arg == "--verbose" ]]; then
-                  DEBUG=true
-                  break
-            fi
-      done
-
-      # Parse environment argument and filter out non-positional arguments
-      filtered_args=()
-      for arg in "$@"; do
-            if [[ $arg == --env=* ]]; then
-                  ENV="${arg#*=}"
-            elif [[ $arg == -e=* ]]; then
-                  ENV="${arg#*=}"
-            elif [[ $arg == --dev ]]; then
-                  ENV="dev"
-            elif [[ $arg == --prod ]]; then
-                  ENV="prod"
-            elif [[ $arg == "-p" ]]; then
-                  ENV="prod"
-            elif [[ $arg == "-d" ]]; then
-                  ENV="dev"
-            elif [[ $arg != "-d" && $arg != "-debug" && $arg != "--debug" && $arg != "-verbose" && $arg != "--v" && $arg != "--verbose" ]]; then
-                  filtered_args+=("$arg")
-            fi
+            case $arg in
+            -vv) VERBOSE=1 ;;
+            -vvv) VERBOSE=2 ;;
+            --v)
+                  echo_error "Unknown flag '--v'."
+                  exit 1
+                  ;;
+            --verbose | -verbose) VERBOSE=1 ;;
+            --env=*) ENV="${arg#*=}" ;;
+            -e=*) ENV="${arg#*=}" ;;
+            --dev | -d) ENV="dev" ;;
+            --prod | -p) ENV="prod" ;;
+            *) filtered_args+=("$arg") ;;
+            esac
       done
 
       # Normalize and validate ENV
       if [[ -z "$ENV" ]]; then
-            echo "[INFO]: No --env flag specified. Using 'prod' by default."
+            echo_info "No --env flag specified. Using 'prod' by default."
             ENV="prod"
       elif [[ "$ENV" != "dev" && "$ENV" != "staging" && "$ENV" != "prod" ]]; then
-            echo "[INFO]: Unknown environment '$ENV'. Defaulting to 'staging'."
+            echo_info "Unknown environment '$ENV'. Defaulting to 'staging'."
             ENV="staging"
       fi
 
       # If `shc` is not installed, install it
       if ! command -v shc >/dev/null 2>&1; then
-            echo "shc is required (version 4.0.3 or higher). Would you like to install it? (y/n)"
+            echo_info "shc is required (version 4.0.3 or higher). Would you like to install it? (y/n)"
             read -r answer
 
             if [[ "$answer" == "y" || "$answer" == "Y" ]]; then
@@ -75,7 +67,7 @@ function 5772B520_57F5_433E_927E_031A8329C317() {
             shc_version=$(shc 2>&1 | grep -i 'shc' | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
             required_version="4.0.3"
             if [[ -n "$shc_version" && "$(printf '%s\n' "$required_version" "$shc_version" | sort -V | head -n1)" != "$required_version" ]]; then
-                  echo "shc version $required_version or higher is required. Would you like to update it? (y/n)"
+                  echo_info "shc version $required_version or higher is required. Would you like to update it? (y/n)"
                   read -r answer
 
                   if [[ "$answer" == "y" || "$answer" == "Y" ]]; then
@@ -151,33 +143,49 @@ EOF
 
       if [[ "$ENV" == "prod" ]]; then
             if [[ ! -f "$filename" ]]; then
-                  echo "File $filename does not exist. Exiting..."
+                  echo_info "File $filename does not exist. Exiting..."
                   exit 1
             fi
 
-            [[ "$DEBUG" = true ]] && echo "[DEBUG]: filename=$filename" && echo "[DEBUG]: cmd=$handle"
+            echo_debug "filename=$filename"
+            echo_debug "cmd=$handle"
 
             dst_bin="$HOME/src/$basename/dist/${ENV}.$handle"
             dst_final="$HOME/bin/$handle"
 
             mkdir -p "$(dirname "$dst_bin")"
 
+            if [[ -d "$HOME/src/$basename/src" ]]; then
+                  dst_src="$HOME/src/$basename/src/$handle"
+            elif [[ -d "$HOME/src/$basename/cli" ]]; then
+                  dst_src="$HOME/src/$basename/cli/$handle"
+            else
+                  dst_src="$HOME/src/$basename/src/$handle"
+            fi
+
+            echo_debug "Running shc -f $filename -o $dst_bin"
             shc -f "$filename" -o "$dst_bin"
+            if [[ ! -f "$dst_bin" ]]; then
+                  echo_error "Failed to create $dst_bin using shc."
+                  exit 1
+            fi
+
             cp "$dst_bin" "$dst_final"
             chmod +x "$dst_bin" "$dst_final"
 
             printf "\r\033[K[\033[38;5;10m%s\033[39m] Updated \033[0;32m%s\033[0m\n" "$(date '+%H:%M:%S')" "$dst_final"
-            printf "\n[INFO]: Output file created at: \033[0;32m%s\033[0m\n" "$dst_final"
+            echo_info "Output file created at: $dst_final"
             exit 0
       fi
 
       while true; do
             if [[ ! -f "$filename" ]]; then
-                  echo "File $filename does not exist. Exiting..."
+                  echo_info "File $filename does not exist. Exiting..."
                   exit 1
             fi
 
-            [[ "$DEBUG" = true ]] && echo "[DEBUG]: filename=$filename" && echo "[DEBUG]: cmd=$handle"
+            echo_debug "filename=$filename"
+            echo_debug "cmd=$handle"
 
             # Only use dist and bin directories for outputs
             dst_bin="$HOME/src/$basename/dist/${ENV}.$handle"
@@ -199,17 +207,17 @@ EOF
             fi
 
             if [[ "$source_changed" == false && "$bin_needs_update" == false ]]; then
-                  [[ "$DEBUG" = true ]] && echo "[DEBUG]: No changes detected. Skipping..."
+                  echo_debug "No changes detected. Skipping..."
                   printf "\r\033[K[\033[38;5;10m%s\033[39m] No changes detected. Watching \033[0;32m%s\033[0m..." "$(date '+%H:%M:%S')" "$(basename "$filename")"
                   sleep 1
                   continue
             else
                   if [[ "$source_changed" == true && "$bin_needs_update" == true ]]; then
-                        [[ "$DEBUG" = true ]] && echo "[$(date '+%H:%M:%S')] Source and bin files need updating. Syncing..."
+                        echo_debug " ($(date '+%H:%M:%S')) Source and bin files need updating. Syncing..."
                   elif [[ "$source_changed" == true ]]; then
-                        [[ "$DEBUG" = true ]] && echo "[$(date '+%H:%M:%S')] Source file changed. Syncing..."
+                        echo_debug " ($(date '+%H:%M:%S')) Source file changed. Syncing..."
                   elif [[ "$bin_needs_update" == true ]]; then
-                        [[ "$DEBUG" = true ]] && echo "[$(date '+%H:%M:%S')] Environment/bin mismatch detected. Syncing..."
+                        echo_debug " ($(date '+%H:%M:%S')) Environment/bin mismatch detected. Syncing..."
                   fi
 
                   if [[ -f "$source/Cargo.toml" ]]; then
@@ -228,7 +236,7 @@ EOF
                   fi
 
                   printf "\r\033[K[\033[38;5;10m%s\033[39m] Updated \033[0;32m%s\033[0m\n" "$(date '+%H:%M:%S')" "$dst_final"
-                  printf "\n[INFO]: Output file created at: \033[0;32m%s\033[0m\n" "$dst_final"
+                  echo_info "Output file created at: $dst_final"
             fi
 
             sleep 1
@@ -243,7 +251,7 @@ function install_rust_cli() {
       local dst_final="$4"
       local bin_name="$handle"
 
-      [[ "$DEBUG" = true ]] && echo "[DEBUG] Installing Rust CLI from $project_dir"
+      echo_debug "Installing Rust CLI from $project_dir"
 
       # Create a custom output directory structure
       local custom_target_dir
@@ -264,19 +272,19 @@ function install_rust_cli() {
             fi
 
             [[ -z "$bin_name" ]] && bin_name="$handle"
-            [[ "$DEBUG" = true ]] && echo "[DEBUG] Detected binary name: $bin_name"
+            echo_debug "Detected binary name: $bin_name"
       fi
 
       # Run cargo build with custom target directory
       (
             cd "$project_dir" || {
-                  echo "[Rust] Could not cd to $project_dir"
+                  echo_error " Error: Could not cd to $project_dir"
                   exit 1
             }
 
             # Build with custom target directory
             CARGO_TARGET_DIR="$custom_target_dir" cargo build --release || {
-                  echo "[Rust] cargo build failed"
+                  echo_error " RustError: cargo build failed"
                   exit 1
             }
       )
@@ -286,7 +294,7 @@ function install_rust_cli() {
 
       # If binary not found in expected location, try to find it
       if [[ ! -f "$bin_path" ]]; then
-            [[ "$DEBUG" = true ]] && echo "[DEBUG] Binary not found at expected path: $bin_path"
+            echo_debug "Binary not found at expected path: $bin_path"
             # Search for executable files in the release directory
             local found_bins=()
             mapfile -t found_bins < <(find "$custom_target_dir/release" -type f -executable -not -path "*/deps/*" -not -path "*/examples/*" 2>/dev/null)
@@ -294,9 +302,9 @@ function install_rust_cli() {
             if [[ ${#found_bins[@]} -eq 1 ]]; then
                   bin_path="${found_bins[0]}"
                   bin_name="$(basename "$bin_path")"
-                  [[ "$DEBUG" = true ]] && echo "[DEBUG] Found single binary: $bin_path"
+                  echo_debug "Found single binary: $bin_path"
             elif [[ ${#found_bins[@]} -gt 1 ]]; then
-                  echo "[Rust] Multiple binaries found, using $handle as the target"
+                  echo_info " Rust: Multiple binaries found, using $handle as the target"
                   for bin in "${found_bins[@]}"; do
                         if [[ "$(basename "$bin")" == "$handle" ]]; then
                               bin_path="$bin"
@@ -309,7 +317,7 @@ function install_rust_cli() {
                         bin_path="${found_bins[0]}"
                         bin_name="$(basename "$bin_path")"
                   fi
-                  [[ "$DEBUG" = true ]] && echo "[DEBUG] Selected binary: $bin_path"
+                  echo_debug "Selected binary: $bin_path"
             fi
       fi
 
@@ -317,13 +325,40 @@ function install_rust_cli() {
             cp "$bin_path" "$dst_bin"
             cp "$bin_path" "$dst_final"
             chmod +x "$dst_bin" "$dst_final"
-            echo "[Rust] Installed $bin_name to $dst_bin and $dst_final"
+            echo " Rust: Installed $bin_name to $dst_bin and $dst_final"
       else
-            echo "[Rust] Build succeeded but binary not found"
-            echo "[Rust] Searched in: $custom_target_dir/release"
-            echo "[Rust] Expected binary name: $bin_name"
-            echo "[Rust] Please check your Cargo.toml and project structure."
+            echo_error " RustError: Build succeeded but binary not found"
+            echo_error " RustError: Searched in: $custom_target_dir/release"
+            echo_error " RustError: Expected binary name: $bin_name"
+            echo_error " RustError: Please check your Cargo.toml and project structure."
             exit 1
+      fi
+}
+
+# Parse verbosity flags
+for arg in "$@"; do
+      if [[ $arg == "-vv" ]]; then
+            VERBOSE=1
+      elif [[ $arg == "-vvv" ]]; then
+            VERBOSE=2
+      fi
+done
+
+function echo_error() {
+      if [[ $VERBOSE -ge 0 ]]; then
+            echo -e "\033[31m[ERROR]: $1\033[0m"
+      fi
+}
+
+function echo_info() {
+      if [[ $VERBOSE -ge 1 ]]; then
+            echo -e "\033[32m[INFO]: $1\033[0m"
+      fi
+}
+
+function echo_debug() {
+      if [[ $VERBOSE -ge 2 ]]; then
+            echo -e "\033[34m[DEBUG]: $1\033[0m"
       fi
 }
 

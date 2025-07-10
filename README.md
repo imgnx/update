@@ -121,17 +121,17 @@ installs as 'mycmd'
 2. It should copy the bundled output\* (which should include any other imports) to
    "$HOME/src/$handle/src/main.[sh,etc.]" where ...
 
-- $handle is "$(basename "$(pwd)")" of main.[sh,etc.].
+- `$handle` is "$(basename "$(pwd)")" of main.[sh,etc.].
 
-3. Compile "$HOME/src/$(basename
-   "$(pwd)")/src/main.[sh,etc.]" to "$HOME/src/$handle/bin/main"4. Copy "$HOME/src/$(basename "$(pwd)")/bin/main"
-   to "$HOME/bin/$handle" \*\*
+3. Compile `$HOME/src/$(basename "$(pwd)")/src/main.[sh,etc.]` to `$HOME/src/$handle/bin/main`
+
+4. Copy `$HOME/src/$(basename "$(pwd)")/bin/main` to `$HOME/bin/$handle` \*\*
 
 <!-- prettier-ignore -->
 <small>* Not to exceed `100MB`, otherwise, user is required to use the `--force` flag.</small>
 
 <!-- prettier-ignore -->
-<small>** If `bin` already exists, `update` calculates the percentage of difference between the old and new `bin` files, and if the difference is greater than 50%, it will sound the terminal bell (`tput bel`), and prompt the user to confirm and continue with the update.
+<small>** If `bin` already exists, `update` calculates the percentage of difference between the old and new `bin` files, and if the difference is greater than 50%, it will sound the terminal bell (`tput bel`), and prompt the user <mark>to confirm that they know they are making a large contribution </mark>and continue with the update.
 </small>
 
 <style>
@@ -150,3 +150,5 @@ installs as 'mycmd'
         font-weight: 500;
     }
 </style>
+
+License: [0BSD](https://opensource.org/licenses/0BSD)
